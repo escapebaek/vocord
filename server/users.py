@@ -8,10 +8,11 @@ import os
 from .database import database, users, friends
 from .models import UserResponse, FriendResponse
 from .auth import get_current_user
+from .config import get_supabase, STORAGE_BUCKET
 
 router = APIRouter(prefix="/api", tags=["users"])
 
-UPLOAD_DIR = "uploads"
+UPLOAD_DIR = "uploads"   # local fallback
 
 
 # ─────────────────────────────────────
@@ -35,23 +36,58 @@ async def upload_profile_image(
 
     # 고유 파일명 생성
     filename = f"{current_user.id}_{uuid.uuid4().hex[:8]}{ext}"
-    filepath = os.path.join(UPLOAD_DIR, filename)
 
-    # 기존 프로필 이미지 삭제
-    if current_user.profile_image:
-        old_path = os.path.join(UPLOAD_DIR, current_user.profile_image)
-        if os.path.exists(old_path):
-            os.remove(old_path)
+    supabase = get_supabase()
 
-    # 파일 저장
-    with open(filepath, "wb") as f:
-        f.write(contents)
+    if supabase:
+        # ─── Supabase Storage 업로드 ───
+        try:
+            # 기존 이미지 삭제 (Supabase Storage)
+            if current_user.profile_image and "supabase" in (current_user.profile_image or ""):
+                old_filename = current_user.profile_image.split("/")[-1]
+                try:
+                    supabase.storage.from_(STORAGE_BUCKET).remove([old_filename])
+                except Exception:
+                    pass
 
-    # DB 업데이트
-    query = users.update().where(users.c.id == current_user.id).values(profile_image=filename)
+            # 업로드
+            content_type = {
+                ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                ".png": "image/png", ".gif": "image/gif", ".webp": "image/webp"
+            }.get(ext, "image/jpeg")
+
+            supabase.storage.from_(STORAGE_BUCKET).upload(
+                filename, contents,
+                file_options={"content-type": content_type, "upsert": "true"}
+            )
+
+            # Public URL 가져오기
+            public_url = supabase.storage.from_(STORAGE_BUCKET).get_public_url(filename)
+            image_url = public_url
+
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"이미지 업로드 실패: {str(e)[:100]}")
+    else:
+        # ─── 로컬 fallback ───
+        os.makedirs(UPLOAD_DIR, exist_ok=True)
+        filepath = os.path.join(UPLOAD_DIR, filename)
+
+        # 기존 이미지 삭제
+        if current_user.profile_image and not current_user.profile_image.startswith("http"):
+            old_path = os.path.join(UPLOAD_DIR, current_user.profile_image)
+            if os.path.exists(old_path):
+                os.remove(old_path)
+
+        with open(filepath, "wb") as f:
+            f.write(contents)
+
+        image_url = f"/uploads/{filename}"
+
+    # DB에 이미지 URL 저장
+    query = users.update().where(users.c.id == current_user.id).values(profile_image=image_url)
     await database.execute(query)
 
-    return {"message": "프로필 이미지가 변경되었습니다.", "profile_image": f"/uploads/{filename}"}
+    return {"message": "프로필 이미지가 변경되었습니다.", "profile_image": image_url}
 
 
 # ─────────────────────────────────────
@@ -74,10 +110,15 @@ async def update_status(current_user=Depends(get_current_user)):
 # ─────────────────────────────────────
 @router.get("/users/profile")
 async def get_profile(current_user=Depends(get_current_user)):
+    # profile_image가 이미 완전한 URL이면 그대로, 아니면 /uploads/ 붙이기
+    img = current_user.profile_image
+    if img and not img.startswith("http") and not img.startswith("/"):
+        img = f"/uploads/{img}"
+
     return {
         "id": current_user.id,
         "username": current_user.username,
-        "profile_image": f"/uploads/{current_user.profile_image}" if current_user.profile_image else None,
+        "profile_image": img,
         "user_status": current_user.user_status or "online",
         "is_online": bool(current_user.is_online)
     }
