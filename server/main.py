@@ -23,11 +23,20 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """앱 시작/종료 시 DB 연결 관리"""
-    await database.connect()
-    print("✅ DB 연결 완료")
+    try:
+        await database.connect()
+        print("✅ DB 연결 완료")
+    except Exception as e:
+        print(f"⚠️  DB 연결 실패: {e}")
+        print("   → DATABASE_URL 환경변수를 확인하세요")
+        # 연결 실패해도 앱은 실행 (API 호출 시 에러 발생)
     yield
-    await database.disconnect()
-    print("🔌 DB 연결 해제")
+    try:
+        await database.disconnect()
+        print("🔌 DB 연결 해제")
+    except Exception:
+        pass
+
 
 
 app = FastAPI(title="VOCORD", version="1.0.0", lifespan=lifespan)
