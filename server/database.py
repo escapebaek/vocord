@@ -74,11 +74,17 @@ room_members = Table(
 if IS_POSTGRES:
     # sync psycopg2로 DDL 실행 (Supabase는 이미 테이블이 있으므로 IF NOT EXISTS 무시됨)
     _sync_url = _raw_url  # postgresql://... (asyncpg 아닌 원본)
-    engine = sqlalchemy.create_engine(_sync_url)
+    try:
+        engine = sqlalchemy.create_engine(_sync_url, connect_args={"connect_timeout": 10})
+        metadata.create_all(engine)
+        print(f"✅ PostgreSQL 테이블 확인 완료")
+    except Exception as e:
+        print(f"⚠️  PostgreSQL DDL 실패 (테이블이 이미 있으면 무시): {e}")
+        print(f"   DATABASE_URL prefix: {_raw_url[:50]}...")
+        # 테이블이 이미 Supabase에 있으면 계속 진행
 else:
     engine = sqlalchemy.create_engine(_raw_url)
-
-metadata.create_all(engine)
+    metadata.create_all(engine)
 
 # ─── SQLite 전용 마이그레이션 ──────────────────────────────────────────────────
 if not IS_POSTGRES:
