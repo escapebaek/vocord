@@ -49,3 +49,10 @@ app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 @app.get("/")
 async def root():
     return FileResponse(str(STATIC_DIR / "index.html"))
+
+
+# ─── 헬스체크 (UptimeRobot 등 외부 모니터용) ────────────────────────────────
+@app.get("/ping")
+@app.head("/ping")
+async def ping():
+    return {"status": "ok", "service": "VOCORD"}
