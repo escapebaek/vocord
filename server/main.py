@@ -1,5 +1,7 @@
 # server/main.py
 
+import os
+from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -10,6 +12,12 @@ from .auth import router as auth_router
 from .users import router as users_router
 from .rooms import router as rooms_router
 from .ws_handler import router as ws_router
+
+# ── 경로: 이 파일(server/main.py)의 상위 폴더 = 프로젝트 루트 ──────────────
+BASE_DIR = Path(__file__).resolve().parent.parent
+STATIC_DIR = BASE_DIR / "static"
+UPLOAD_DIR = BASE_DIR / "uploads"
+UPLOAD_DIR.mkdir(exist_ok=True)
 
 
 @asynccontextmanager
@@ -31,15 +39,13 @@ app.include_router(rooms_router)
 app.include_router(ws_router)
 
 # 정적 파일 서빙 (CSS, JS)
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-# 업로드 파일 서빙 (프로필 이미지 등)
-import os
-os.makedirs("uploads", exist_ok=True)
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+# 업로드 파일 서빙 (로컬 fallback)
+app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 
 
 # 메인 페이지
 @app.get("/")
 async def root():
-    return FileResponse("static/index.html")
+    return FileResponse(str(STATIC_DIR / "index.html"))
