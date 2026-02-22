@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="VOCORD - 음성을 텍스트로 변환하여 소통하는 실시간 채팅 앱">
+    <title>VOCORD</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <!-- ═══════════════════════════════════ -->
+    <!-- 1. 로그인 / 회원가입 화면             -->
+    <!-- ═══════════════════════════════════ -->
+    <div id="auth-screen" class="screen active">
+        <div class="auth-container">
+            <div class="logo">
+                <div class="logo-icon">🎙️</div>
+                <h1>VOCORD</h1>
+                <p class="tagline">Voice to Text, Instantly Connected</p>
+            </div>
+
+            <div class="auth-tabs">
+                <button id="login-tab" class="tab-btn active" onclick="switchTab('login')">로그인</button>
+                <button id="register-tab" class="tab-btn" onclick="switchTab('register')">회원가입</button>
+            </div>
+
+            <form id="auth-form" onsubmit="handleAuth(event)">
+                <div class="input-group">
+                    <label for="username">사용자 이름</label>
+                    <input type="text" id="username" placeholder="Username" required autocomplete="off">
+                </div>
+                <div class="input-group">
+                    <label for="password">비밀번호</label>
+                    <input type="password" id="password" placeholder="Password" required>
+                </div>
+                <button type="submit" class="btn-primary" id="auth-submit-btn">로그인</button>
+                <p id="auth-error" class="error-msg"></p>
+            </form>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════ -->
+    <!-- 2. 로비 화면                         -->
+    <!-- ═══════════════════════════════════ -->
+    <div id="lobby-screen" class="screen">
+        <header class="lobby-header">
+            <div class="header-left">
+                <span class="logo-small">🎙️ VOCORD</span>
+            </div>
+            <div class="header-right">
+                <span id="current-username" class="user-badge">🟢 username</span>
+                <button class="btn-secondary" onclick="openMyPage()">👤 마이페이지</button>
+                <button class="btn-secondary" onclick="openApiKeyModal()">🔑 API Key</button>
+                <button class="btn-secondary" onclick="logout()">로그아웃</button>
+            </div>
+        </header>
+
+        <div class="lobby-content">
+            <!-- 왼쪽: 친구 패널 -->
+            <div class="panel friends-panel">
+                <h2>👥 친구</h2>
+
+                <!-- 유저 검색 -->
+                <div class="search-box">
+                    <input type="text" id="user-search" placeholder="유저 검색..." oninput="searchUsers()">
+                    <div id="search-results" class="search-results"></div>
+                </div>
+
+                <!-- 친구 요청 -->
+                <div id="pending-section" class="sub-section">
+                    <h3>📩 받은 요청 <span id="pending-count" class="badge">0</span></h3>
+                    <div id="pending-list"></div>
+                </div>
+
+                <!-- 친구 목록 -->
+                <div class="sub-section">
+                    <h3>친구 목록</h3>
+                    <div id="friends-list"></div>
+                </div>
+            </div>
+
+            <!-- 오른쪽: 채팅방 패널 -->
+            <div class="panel rooms-panel">
+                <h2>💬 채팅방</h2>
+
+                <!-- 방 만들기 -->
+                <div class="create-room">
+                    <input type="text" id="room-name-input" placeholder="방 이름 입력...">
+                    <button class="btn-primary btn-small" onclick="createRoom()">+ 방 만들기</button>
+                </div>
+
+                <!-- 방 목록 -->
+                <div id="rooms-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════ -->
+    <!-- 3. 채팅방 화면                       -->
+    <!-- ═══════════════════════════════════ -->
+    <div id="chat-screen" class="screen">
+        <header class="chat-header">
+            <button class="btn-back" onclick="leaveChat()">← 나가기</button>
+            <h2 id="chat-room-name">#채팅방</h2>
+            <div class="chat-header-right">
+                <button class="btn-secondary btn-small" onclick="openPTTKeySettings()">⌨️ PTT 키 설정</button>
+                <span id="chat-member-count" class="badge">0명</span>
+            </div>
+        </header>
+
+        <div class="chat-body">
+            <!-- 채팅 메시지 영역 -->
+            <div class="chat-messages" id="chat-messages">
+                <div class="welcome-msg">
+                    <p>🎙️ <strong>M 키</strong>를 누른 상태로 말하세요. 놓으면 텍스트로 변환됩니다.</p>
+                </div>
+            </div>
+
+            <!-- 오른쪽: 접속자 목록 -->
+            <div class="chat-sidebar">
+                <h3>접속 중</h3>
+                <div id="chat-online-users"></div>
+            </div>
+        </div>
+
+        <!-- 하단 상태바 -->
+        <div class="chat-footer">
+            <div class="ptt-area">
+                <div id="ptt-indicator" class="ptt-indicator">
+                    <span id="ptt-icon">🎤</span>
+                    <span id="ptt-text">M 키를 누르고 말하세요</span>
+                </div>
+                <div id="ptt-status" class="ptt-status ready">Ready</div>
+            </div>
+            <!-- 텍스트 직접 입력 -->
+            <div class="text-input-area">
+                <input type="text" id="text-message-input" placeholder="텍스트로 직접 입력..." onkeydown="handleTextInput(event)">
+                <button class="btn-send" onclick="sendTextMessage()">전송</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- API Key 입력 모달 -->
+    <div id="api-key-modal" class="modal" style="display:none;">
+        <div class="modal-content">
+            <h3>🔑 Gemini API Key 설정</h3>
+            <p>음성→텍스트 변환을 위해 Gemini API Key가 필요합니다.</p>
+            <input type="password" id="gemini-api-key-input" placeholder="Gemini API Key 입력...">
+            <div class="modal-buttons">
+                <button class="btn-primary" onclick="saveApiKey()">저장</button>
+                <button class="btn-secondary" onclick="closeApiKeyModal()">나중에</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- PTT 키 설정 모달 -->
+    <div id="ptt-key-modal" class="modal" style="display:none;">
+        <div class="modal-content">
+            <h3>⌨️ PTT 키 변경</h3>
+            <p>Push-to-Talk에 사용할 키를 설정합니다.</p>
+            <div class="ptt-key-setting">
+                <div class="key-display-row">
+                    <span class="key-label">현재 키:</span>
+                    <span id="current-ptt-key-display" class="key-badge">M</span>
+                </div>
+                <div class="key-display-row" style="margin-top:12px;">
+                    <span class="key-label">새 키:</span>
+                    <span id="new-ptt-key-display" class="key-badge new-key">아무 키나 누르세요...</span>
+                </div>
+            </div>
+            <div class="modal-buttons">
+                <button class="btn-primary" onclick="savePTTKey()">저장</button>
+                <button class="btn-secondary" onclick="closePTTKeyModal()">취소</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/auth.js"></script>
+
+    <!-- 초대 팝업 -->
+    <div id="invite-popup" class="invite-popup" style="display:none;">
+        <div class="invite-popup-content">
+            <div class="invite-popup-icon">📩</div>
+            <div class="invite-popup-text">
+                <strong id="invite-from-user">유저</strong>님이 대화에 초대했습니다
+            </div>
+            <div class="invite-popup-room">
+                방: <span id="invite-room-name">방 이름</span>
+            </div>
+            <div class="invite-popup-buttons">
+                <button id="btn-accept-invite" class="btn-accept-invite">수락</button>
+                <button id="btn-decline-invite" class="btn-decline-invite">거절</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 마이페이지 모달 -->
+    <div id="mypage-modal" class="modal" style="display:none;">
+        <div class="modal-content mypage-content">
+            <h3>👤 마이페이지</h3>
+
+            <!-- 프로필 섹션 -->
+            <div class="mypage-profile-section">
+                <div class="mypage-avatar-wrap">
+                    <img id="mypage-avatar-img" src="" alt="프로필" style="display:none;" class="mypage-avatar-img">
+                    <div id="mypage-avatar-default" class="mypage-avatar-img mypage-avatar-default">?</div>
+                    <label for="profile-image-file" class="avatar-edit-btn" title="이미지 변경">✏️</label>
+                    <input type="file" id="profile-image-file" accept="image/*" style="display:none;" onchange="uploadProfileImage(this)">
+                </div>
+                <div class="mypage-info-col">
+                    <div class="mypage-row">
+                        <span class="mypage-label">사용자명</span>
+                        <span id="mypage-username" class="mypage-value">-</span>
+                    </div>
+                    <div class="mypage-row" style="margin-top:10px;">
+                        <span class="mypage-label">상태</span>
+                        <button id="status-toggle-btn" class="status-toggle-btn" onclick="toggleStatus()">🟢 온라인</button>
+                    </div>
+                </div>
+            </div>
+
+            <p id="profile-img-msg" class="error-msg" style="margin-top:8px;"></p>
+
+            <hr class="mypage-divider">
+
+            <h4>🔒 비밀번호 변경</h4>
+            <div class="input-group">
+                <label for="current-pw">현재 비밀번호</label>
+                <input type="password" id="current-pw" placeholder="현재 비밀번호 입력">
+            </div>
+            <div class="input-group">
+                <label for="new-pw">새 비밀번호</label>
+                <input type="password" id="new-pw" placeholder="새 비밀번호 (4자 이상)">
+            </div>
+            <div class="input-group">
+                <label for="new-pw-confirm">새 비밀번호 확인</label>
+                <input type="password" id="new-pw-confirm" placeholder="새 비밀번호 다시 입력">
+            </div>
+            <p id="pw-change-msg" class="error-msg"></p>
+
+            <div class="modal-buttons">
+                <button class="btn-primary" onclick="changePassword()">비밀번호 변경</button>
+                <button class="btn-secondary" onclick="closeMyPage()">닫기</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/lobby.js"></script>
+    <script src="/static/js/ws.js"></script>
+    <script src="/static/js/recorder.js"></script>
+    <script src="/static/js/gemini.js"></script>
+    <script src="/static/js/chat.js"></script>
+</body>
+</html>
