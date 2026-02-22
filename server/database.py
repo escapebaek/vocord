@@ -1,19 +1,42 @@
+import os
 import sqlalchemy
 from sqlalchemy import Table, Column, Integer, String, Boolean, DateTime, ForeignKey, func
 import databases
 
-# 1. DATABASE_URL 정의: "sqlite:///./vocord.db"
-DATABASE_URL = "sqlite:///./vocord.db"
+# ──────────────────────────────────────────────────────────────────────────────
+# DATABASE URL 설정
+#   - 환경변수 DATABASE_URL 이 있으면 PostgreSQL (Supabase 등)
+#   - 없으면 로컬 SQLite
+# ──────────────────────────────────────────────────────────────────────────────
+_raw_url = os.getenv("DATABASE_URL", "sqlite:///./vocord.db")
 
-# 2. databases.Database(DATABASE_URL) 객체 생성
+# Supabase / Heroku 등은 "postgres://" 로 주는 경우가 있어서 변환
+if _raw_url.startswith("postgres://"):
+    _raw_url = _raw_url.replace("postgres://", "postgresql://", 1)
+
+# databases 라이브러리용 URL
+#   PostgreSQL → asyncpg 드라이버로 변환
+if _raw_url.startswith("postgresql://") or _raw_url.startswith("postgresql+"):
+    # asyncpg 드라이버 명시
+    _db_url = _raw_url.replace("postgresql://", "postgresql+asyncpg://", 1) \
+        if "postgresql+asyncpg" not in _raw_url else _raw_url
+    IS_POSTGRES = True
+else:
+    _db_url = _raw_url     # sqlite:///./vocord.db
+    IS_POSTGRES = False
+
+DATABASE_URL = _db_url
+
+# databases.Database 객체 (비동기 쿼리용)
 database = databases.Database(DATABASE_URL)
 
-# 3. sqlalchemy.MetaData() 생성
+# sqlalchemy MetaData (테이블 스키마 정의용)
 metadata = sqlalchemy.MetaData()
 
-# 4. 테이블 4개 정의 (sqlalchemy.Table 사용):
+# ──────────────────────────────────────────────────────────────────────────────
+# 테이블 정의
+# ──────────────────────────────────────────────────────────────────────────────
 
-# [users 테이블] - 회원 정보
 users = Table(
     "users",
     metadata,
@@ -21,12 +44,11 @@ users = Table(
     Column("username", String(50), unique=True, index=True),
     Column("password_hash", String(255)),
     Column("is_online", Boolean, default=False),
-    Column("profile_image", String(255), nullable=True),   # 프로필 이미지 파일명
+    Column("profile_image", String(500), nullable=True),   # 프로필 이미지 경로
     Column("user_status", String(20), default="online"),    # online / away
     Column("created_at", DateTime, default=func.now())
 )
 
-# [friends 테이블] - 친구 관계
 friends = Table(
     "friends",
     metadata,
@@ -36,7 +58,6 @@ friends = Table(
     Column("status", String(20), default="pending")
 )
 
-# [rooms 테이블] - 채팅방/게임방 등 방 정보
 rooms = Table(
     "rooms",
     metadata,
@@ -46,7 +67,6 @@ rooms = Table(
     Column("created_at", DateTime, default=func.now())
 )
 
-# [room_members 테이블] - 방에 들어간 멤버 목록
 room_members = Table(
     "room_members",
     metadata,
@@ -55,26 +75,36 @@ room_members = Table(
     Column("user_id", Integer, ForeignKey("users.id"))
 )
 
-# 5. engine 생성 + 테이블 실제 생성
-engine = sqlalchemy.create_engine(DATABASE_URL)
+# ──────────────────────────────────────────────────────────────────────────────
+# 테이블 생성 (syncronous engine으로 DDL 실행)
+# ──────────────────────────────────────────────────────────────────────────────
+if IS_POSTGRES:
+    # PostgreSQL: psycopg2 (sync) 드라이버로 DDL 실행
+    _sync_url = _raw_url  # postgresql://...
+    engine = sqlalchemy.create_engine(_sync_url)
+else:
+    engine = sqlalchemy.create_engine(_raw_url)
+
 metadata.create_all(engine)
 
-# 6. 기존 DB에 새 컬럼이 없으면 추가 (마이그레이션)
-import sqlite3
+# ──────────────────────────────────────────────────────────────────────────────
+# SQLite 전용 마이그레이션 (새 컬럼 추가)
+# ──────────────────────────────────────────────────────────────────────────────
+if not IS_POSTGRES:
+    import sqlite3
 
-def migrate_db():
-    conn = sqlite3.connect("vocord.db")
-    cursor = conn.cursor()
-    # 이미 있는 컬럼이면 무시
-    try:
-        cursor.execute("ALTER TABLE users ADD COLUMN profile_image TEXT")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute("ALTER TABLE users ADD COLUMN user_status TEXT DEFAULT 'online'")
-    except sqlite3.OperationalError:
-        pass
-    conn.commit()
-    conn.close()
+    def migrate_db():
+        conn = sqlite3.connect("vocord.db")
+        cursor = conn.cursor()
+        for col_def in [
+            "ALTER TABLE users ADD COLUMN profile_image TEXT",
+            "ALTER TABLE users ADD COLUMN user_status TEXT DEFAULT 'online'",
+        ]:
+            try:
+                cursor.execute(col_def)
+            except sqlite3.OperationalError:
+                pass  # 이미 존재하면 무시
+        conn.commit()
+        conn.close()
 
-migrate_db()
+    migrate_db()
