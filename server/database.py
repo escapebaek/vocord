@@ -1,110 +1,101 @@
+"""
+server/database.py
+
+로컬: SQLite (기본값)
+배포 환경(Railway 등): DATABASE_URL 환경변수 → Supabase PostgreSQL
+"""
 import os
 import sqlalchemy
 from sqlalchemy import Table, Column, Integer, String, Boolean, DateTime, ForeignKey, func
 import databases
 
-# ──────────────────────────────────────────────────────────────────────────────
-# DATABASE URL 설정
-#   - 환경변수 DATABASE_URL 이 있으면 PostgreSQL (Supabase 등)
-#   - 없으면 로컬 SQLite
-# ──────────────────────────────────────────────────────────────────────────────
+# ─── DB URL 결정 ─────────────────────────────────────────────────────────────
 _raw_url = os.getenv("DATABASE_URL", "sqlite:///./vocord.db")
 
-# Supabase / Heroku 등은 "postgres://" 로 주는 경우가 있어서 변환
+# Heroku/Railway가 "postgres://" 형태로 줄 수 있어서 변환
 if _raw_url.startswith("postgres://"):
     _raw_url = _raw_url.replace("postgres://", "postgresql://", 1)
 
-# databases 라이브러리용 URL
-#   PostgreSQL → asyncpg 드라이버로 변환
-if _raw_url.startswith("postgresql://") or _raw_url.startswith("postgresql+"):
-    # asyncpg 드라이버 명시
-    _db_url = _raw_url.replace("postgresql://", "postgresql+asyncpg://", 1) \
-        if "postgresql+asyncpg" not in _raw_url else _raw_url
-    IS_POSTGRES = True
+IS_POSTGRES = _raw_url.startswith("postgresql")
+
+# databases 라이브러리는 async 드라이버를 써야 함
+if IS_POSTGRES:
+    # postgresql://... → postgresql+asyncpg://...
+    if "postgresql+asyncpg" not in _raw_url:
+        _async_url = _raw_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    else:
+        _async_url = _raw_url
 else:
-    _db_url = _raw_url     # sqlite:///./vocord.db
-    IS_POSTGRES = False
+    _async_url = _raw_url   # sqlite:///...
 
-DATABASE_URL = _db_url
+DATABASE_URL = _async_url
 
-# databases.Database 객체 (비동기 쿼리용)
+# ─── databases (비동기 쿼리) ──────────────────────────────────────────────────
 database = databases.Database(DATABASE_URL)
 
-# sqlalchemy MetaData (테이블 스키마 정의용)
+# ─── SQLAlchemy metadata (테이블 스키마 정의) ────────────────────────────────
 metadata = sqlalchemy.MetaData()
 
-# ──────────────────────────────────────────────────────────────────────────────
-# 테이블 정의
-# ──────────────────────────────────────────────────────────────────────────────
-
 users = Table(
-    "users",
-    metadata,
-    Column("id", Integer, primary_key=True),
-    Column("username", String(50), unique=True, index=True),
+    "users", metadata,
+    Column("id",            Integer,     primary_key=True),
+    Column("username",      String(50),  unique=True, index=True),
     Column("password_hash", String(255)),
-    Column("is_online", Boolean, default=False),
-    Column("profile_image", String(500), nullable=True),   # 프로필 이미지 경로
-    Column("user_status", String(20), default="online"),    # online / away
-    Column("created_at", DateTime, default=func.now())
+    Column("is_online",     Boolean,     default=False),
+    Column("profile_image", String(500), nullable=True),
+    Column("user_status",   String(20),  default="online"),
+    Column("created_at",    DateTime,    default=func.now()),
 )
 
 friends = Table(
-    "friends",
-    metadata,
-    Column("id", Integer, primary_key=True),
-    Column("user_id", Integer, ForeignKey("users.id")),
+    "friends", metadata,
+    Column("id",        Integer, primary_key=True),
+    Column("user_id",   Integer, ForeignKey("users.id")),
     Column("friend_id", Integer, ForeignKey("users.id")),
-    Column("status", String(20), default="pending")
+    Column("status",    String(20), default="pending"),
 )
 
 rooms = Table(
-    "rooms",
-    metadata,
-    Column("id", Integer, primary_key=True),
-    Column("name", String(100)),
+    "rooms", metadata,
+    Column("id",         Integer, primary_key=True),
+    Column("name",       String(100)),
     Column("created_by", Integer, ForeignKey("users.id")),
-    Column("created_at", DateTime, default=func.now())
+    Column("created_at", DateTime, default=func.now()),
 )
 
 room_members = Table(
-    "room_members",
-    metadata,
-    Column("id", Integer, primary_key=True),
+    "room_members", metadata,
+    Column("id",      Integer, primary_key=True),
     Column("room_id", Integer, ForeignKey("rooms.id")),
-    Column("user_id", Integer, ForeignKey("users.id"))
+    Column("user_id", Integer, ForeignKey("users.id")),
 )
 
-# ──────────────────────────────────────────────────────────────────────────────
-# 테이블 생성 (syncronous engine으로 DDL 실행)
-# ──────────────────────────────────────────────────────────────────────────────
+# ─── DDL 실행 (테이블 생성) ───────────────────────────────────────────────────
 if IS_POSTGRES:
-    # PostgreSQL: psycopg2 (sync) 드라이버로 DDL 실행
-    _sync_url = _raw_url  # postgresql://...
+    # sync psycopg2로 DDL 실행 (Supabase는 이미 테이블이 있으므로 IF NOT EXISTS 무시됨)
+    _sync_url = _raw_url  # postgresql://... (asyncpg 아닌 원본)
     engine = sqlalchemy.create_engine(_sync_url)
 else:
     engine = sqlalchemy.create_engine(_raw_url)
 
 metadata.create_all(engine)
 
-# ──────────────────────────────────────────────────────────────────────────────
-# SQLite 전용 마이그레이션 (새 컬럼 추가)
-# ──────────────────────────────────────────────────────────────────────────────
+# ─── SQLite 전용 마이그레이션 ──────────────────────────────────────────────────
 if not IS_POSTGRES:
     import sqlite3
 
-    def migrate_db():
+    def _migrate():
         conn = sqlite3.connect("vocord.db")
-        cursor = conn.cursor()
-        for col_def in [
+        cur = conn.cursor()
+        for ddl in [
             "ALTER TABLE users ADD COLUMN profile_image TEXT",
             "ALTER TABLE users ADD COLUMN user_status TEXT DEFAULT 'online'",
         ]:
             try:
-                cursor.execute(col_def)
+                cur.execute(ddl)
             except sqlite3.OperationalError:
-                pass  # 이미 존재하면 무시
+                pass
         conn.commit()
         conn.close()
 
-    migrate_db()
+    _migrate()
