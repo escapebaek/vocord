@@ -39,61 +39,62 @@ def create_access_token(data: dict) -> str:
 # 회원가입 엔드포인트
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 async def register(user: UserCreate):
-    # 1. DB에서 username 중복 체크
-    #    query = users.select().where(users.c.username == user.username)
-    #    existing = await database.fetch_one(query)
-    query = users.select().where(users.c.username == user.username)
-    existing_user = await database.fetch_one(query)
-
-    # 2. 중복이면 HTTPException(400) 발생
-    if existing_user:
+    try:
+        query = users.select().where(users.c.username == user.username)
+        existing_user = await database.fetch_one(query)
+    except Exception as e:
         raise HTTPException(
-            status_code=400,
-            detail="이미 존재하는 사용자입니다."
+            status_code=503,
+            detail="데이터베이스 연결 오류. 잠시 후 다시 시도해주세요."
         )
 
-    # 3. 비밀번호 해싱
+    if existing_user:
+        raise HTTPException(status_code=400, detail="이미 존재하는 사용자입니다.")
+
     hashed_password = hash_password(user.password)
 
-    # 4. DB에 INSERT
-    #    query = users.insert().values(username=..., password_hash=...)
-    #    await database.execute(query)
-    query = users.insert().values(
-        username=user.username,
-        password_hash=hashed_password
-    )
-    await database.execute(query)
-    
-    # 5. 성공 메시지 반환
+    try:
+        query = users.insert().values(
+            username=user.username,
+            password_hash=hashed_password
+        )
+        await database.execute(query)
+    except Exception as e:
+        raise HTTPException(
+            status_code=503,
+            detail="데이터베이스 연결 오류. 잠시 후 다시 시도해주세요."
+        )
+
     return {"message": "회원가입 성공"}
 
 
 # 로그인 엔드포인트
 @router.post("/login")
 async def login(user: UserCreate):
-    # 1. DB에서 유저 조회
-    query = users.select().where(users.c.username == user.username)
-    db_user = await database.fetch_one(query)
-    
-    # 2. 없으면 HTTPException(401)
+    try:
+        query = users.select().where(users.c.username == user.username)
+        db_user = await database.fetch_one(query)
+    except Exception as e:
+        raise HTTPException(
+            status_code=503,
+            detail="데이터베이스 연결 오류. 잠시 후 다시 시도해주세요."
+        )
+
     if not db_user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="아이디 또는 비밀번호가 올바르지 않습니다.",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    # 3. 비밀번호 검증
+
     if not verify_password(user.password, db_user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="아이디 또는 비밀번호가 올바르지 않습니다.",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    # 4. 틀리면 HTTPException(401)
-    
-    # 5. JWT 토큰 생성: create_access_token({"sub": username})
+
     access_token = create_access_token({"sub": db_user.username})
-    # 6. {"access_token": token, "token_type": "bearer"} 반환
     return {"access_token": access_token, "token_type": "bearer"}
 
 

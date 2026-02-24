@@ -31,7 +31,22 @@ async function handleAuth(event) {
             body: JSON.stringify({ username, password })
         });
 
-        const data = await response.json();
+        // 서버가 JSON이 아닌 응답(500 등)을 보낼 수 있으므로 안전하게 파싱
+        let data;
+        const contentType = response.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+            data = await response.json();
+        } else {
+            const text = await response.text();
+            if (response.status === 500) {
+                errorEl.textContent = '서버 내부 오류가 발생했습니다. DB 연결을 확인해주세요.';
+                console.error('Server 500:', text);
+                return;
+            }
+            errorEl.textContent = `서버 오류 (${response.status})`;
+            console.error('Non-JSON response:', text);
+            return;
+        }
 
         if (!response.ok) {
             errorEl.textContent = data.detail || '오류가 발생했습니다.';
@@ -60,8 +75,8 @@ async function handleAuth(event) {
         }
 
     } catch (err) {
-        errorEl.textContent = '서버 연결에 실패했습니다.';
-        console.error(err);
+        errorEl.textContent = '서버 연결에 실패했습니다. 잠시 후 다시 시도해주세요.';
+        console.error('Auth error:', err);
     }
 }
 
