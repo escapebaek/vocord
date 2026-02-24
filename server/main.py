@@ -54,14 +54,13 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 
 
-# 메인 페이지
-@app.get("/")
+# 메인 페이지 (GET + HEAD 모두 지원)
+@app.api_route("/", methods=["GET", "HEAD"])
 async def root():
     return FileResponse(str(STATIC_DIR / "index.html"))
 
 
-# ─── 헬스체크 (UptimeRobot 등 외부 모니터용) ────────────────────────────────
-@app.get("/ping")
-@app.head("/ping")
+# ─── 헬스체크 (UptimeRobot / Render 헬스체크용) ──────────────────────────────
+@app.api_route("/ping", methods=["GET", "HEAD"])
 async def ping():
     return {"status": "ok", "service": "VOCORD"}
